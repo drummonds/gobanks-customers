@@ -27,7 +27,7 @@ func NewSQLCustomerStore(db *sql.DB, key KeyProvider) (*SQLCustomerStore, error)
 
 func (s *SQLCustomerStore) createSchema() error {
 	// Execute each statement separately for pglike compatibility.
-	for _, stmt := range strings.Split(SchemaSQL, ";") {
+	for stmt := range strings.SplitSeq(SchemaSQL, ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
