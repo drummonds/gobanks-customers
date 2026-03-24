@@ -44,4 +44,5 @@ type CustomerStore interface {
 	List(ctx context.Context, offset, limit int) ([]CustomerRecord, int, error)
 	Count(ctx context.Context) (int, error)
 	Reset(ctx context.Context) error
+	RotateKeys(ctx context.Context) (int, error)
 }

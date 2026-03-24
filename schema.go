@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS cust_pii (
     encrypted_email VARCHAR(500) NOT NULL,
     encrypted_phone VARCHAR(500) NOT NULL,
     ni_hash VARCHAR(64) NOT NULL,
+    key_version INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_cust_pii_ni_hash ON cust_pii (ni_hash);

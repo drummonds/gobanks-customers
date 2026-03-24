@@ -91,9 +91,9 @@ func (s *SQLCustomerStore) Create(ctx context.Context, cust CustomerRecord, pii 
 	}
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO cust_pii (customer_id, encrypted_name, encrypted_ni, encrypted_dob, encrypted_address, encrypted_email, encrypted_phone, ni_hash)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		cust.ID, encName, encNI, encDOB, encAddr, encEmail, encPhone, niHash,
+		`INSERT INTO cust_pii (customer_id, encrypted_name, encrypted_ni, encrypted_dob, encrypted_address, encrypted_email, encrypted_phone, ni_hash, key_version)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		cust.ID, encName, encNI, encDOB, encAddr, encEmail, encPhone, niHash, s.key.CurrentKeyVersion(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert pii: %w", err)
@@ -132,7 +132,7 @@ func (s *SQLCustomerStore) scanCustomer(row *sql.Row) (*CustomerRecord, error) {
 
 func (s *SQLCustomerStore) GetPII(ctx context.Context, ref string) (*PIIData, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT p.encrypted_name, p.encrypted_ni, p.encrypted_dob, p.encrypted_address, p.encrypted_email, p.encrypted_phone
+		`SELECT p.encrypted_name, p.encrypted_ni, p.encrypted_dob, p.encrypted_address, p.encrypted_email, p.encrypted_phone, p.key_version
 		 FROM cust_pii p JOIN cust_customers c ON p.customer_id = c.id WHERE c.ref = $1`, ref)
 	return s.decryptPIIRow(row)
 }
@@ -140,14 +140,15 @@ func (s *SQLCustomerStore) GetPII(ctx context.Context, ref string) (*PIIData, er
 // GetPIIByID retrieves PII by customer primary key ID.
 func (s *SQLCustomerStore) GetPIIByID(ctx context.Context, id string) (*PIIData, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT encrypted_name, encrypted_ni, encrypted_dob, encrypted_address, encrypted_email, encrypted_phone
+		`SELECT encrypted_name, encrypted_ni, encrypted_dob, encrypted_address, encrypted_email, encrypted_phone, key_version
 		 FROM cust_pii WHERE customer_id = $1`, id)
 	return s.decryptPIIRow(row)
 }
 
 func (s *SQLCustomerStore) decryptPIIRow(row *sql.Row) (*PIIData, error) {
 	var encName, encNI, encDOB, encAddr, encEmail, encPhone string
-	err := row.Scan(&encName, &encNI, &encDOB, &encAddr, &encEmail, &encPhone)
+	var keyVersion int
+	err := row.Scan(&encName, &encNI, &encDOB, &encAddr, &encEmail, &encPhone, &keyVersion)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -155,9 +156,9 @@ func (s *SQLCustomerStore) decryptPIIRow(row *sql.Row) (*PIIData, error) {
 		return nil, fmt.Errorf("scan pii: %w", err)
 	}
 
-	key, err := s.key.PIIKey()
+	key, err := s.key.PIIKeyByVersion(keyVersion)
 	if err != nil {
-		return nil, fmt.Errorf("get key: %w", err)
+		return nil, fmt.Errorf("get key version %d: %w", keyVersion, err)
 	}
 
 	name, err := decrypt(key, encName)
@@ -261,6 +262,111 @@ func (s *SQLCustomerStore) Reset(ctx context.Context) error {
 		return fmt.Errorf("delete customers: %w", err)
 	}
 	return nil
+}
+
+// RotateKeys re-encrypts all PII rows that are not on the current key version.
+// Returns the number of rows rotated.
+func (s *SQLCustomerStore) RotateKeys(ctx context.Context) (int, error) {
+	currentVersion := s.key.CurrentKeyVersion()
+	newKey, err := s.key.PIIKey()
+	if err != nil {
+		return 0, fmt.Errorf("get current key: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT customer_id, encrypted_name, encrypted_ni, encrypted_dob, encrypted_address, encrypted_email, encrypted_phone, key_version
+		 FROM cust_pii WHERE key_version != $1`, currentVersion)
+	if err != nil {
+		return 0, fmt.Errorf("select stale rows: %w", err)
+	}
+	defer rows.Close()
+
+	type piiRow struct {
+		customerID                                       string
+		encName, encNI, encDOB, encAddr, encEmail, encPh string
+		keyVersion                                       int
+	}
+	var stale []piiRow
+	for rows.Next() {
+		var r piiRow
+		if err := rows.Scan(&r.customerID, &r.encName, &r.encNI, &r.encDOB, &r.encAddr, &r.encEmail, &r.encPh, &r.keyVersion); err != nil {
+			return 0, fmt.Errorf("scan row: %w", err)
+		}
+		stale = append(stale, r)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	for _, r := range stale {
+		oldKey, err := s.key.PIIKeyByVersion(r.keyVersion)
+		if err != nil {
+			return 0, fmt.Errorf("get key version %d: %w", r.keyVersion, err)
+		}
+
+		// Decrypt with old key
+		name, err := decrypt(oldKey, r.encName)
+		if err != nil {
+			return 0, fmt.Errorf("decrypt name for %s: %w", r.customerID, err)
+		}
+		ni, err := decrypt(oldKey, r.encNI)
+		if err != nil {
+			return 0, fmt.Errorf("decrypt ni for %s: %w", r.customerID, err)
+		}
+		dob, err := decrypt(oldKey, r.encDOB)
+		if err != nil {
+			return 0, fmt.Errorf("decrypt dob for %s: %w", r.customerID, err)
+		}
+		addr, err := decrypt(oldKey, r.encAddr)
+		if err != nil {
+			return 0, fmt.Errorf("decrypt address for %s: %w", r.customerID, err)
+		}
+		email, err := decrypt(oldKey, r.encEmail)
+		if err != nil {
+			return 0, fmt.Errorf("decrypt email for %s: %w", r.customerID, err)
+		}
+		phone, err := decrypt(oldKey, r.encPh)
+		if err != nil {
+			return 0, fmt.Errorf("decrypt phone for %s: %w", r.customerID, err)
+		}
+
+		// Re-encrypt with new key
+		encName, err := encrypt(newKey, name)
+		if err != nil {
+			return 0, fmt.Errorf("re-encrypt name for %s: %w", r.customerID, err)
+		}
+		encNI, err := encrypt(newKey, ni)
+		if err != nil {
+			return 0, fmt.Errorf("re-encrypt ni for %s: %w", r.customerID, err)
+		}
+		encDOB, err := encrypt(newKey, dob)
+		if err != nil {
+			return 0, fmt.Errorf("re-encrypt dob for %s: %w", r.customerID, err)
+		}
+		encAddr, err := encrypt(newKey, addr)
+		if err != nil {
+			return 0, fmt.Errorf("re-encrypt address for %s: %w", r.customerID, err)
+		}
+		encEmail, err := encrypt(newKey, email)
+		if err != nil {
+			return 0, fmt.Errorf("re-encrypt email for %s: %w", r.customerID, err)
+		}
+		encPhone, err := encrypt(newKey, phone)
+		if err != nil {
+			return 0, fmt.Errorf("re-encrypt phone for %s: %w", r.customerID, err)
+		}
+
+		_, err = s.db.ExecContext(ctx,
+			`UPDATE cust_pii SET encrypted_name=$1, encrypted_ni=$2, encrypted_dob=$3, encrypted_address=$4, encrypted_email=$5, encrypted_phone=$6, key_version=$7
+			 WHERE customer_id=$8`,
+			encName, encNI, encDOB, encAddr, encEmail, encPhone, currentVersion, r.customerID,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("update row %s: %w", r.customerID, err)
+		}
+	}
+
+	return len(stale), nil
 }
 
 // parseTime handles both RFC3339 and SQLite datetime formats from pglike.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/drummonds/go-postgres"
+	_ "codeberg.org/hum3/go-postgres"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
@@ -286,5 +286,146 @@ func TestNIHashDedup(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("NI hash count = %d, want 1", count)
+	}
+}
+
+func TestRotateKeys(t *testing.T) {
+	db := openTestDB(t)
+	key1 := []byte("key1-32bytes-for-aes256-testing!")
+	key2 := []byte("key2-32bytes-for-aes256-testing!")
+
+	// Create store with key v1
+	store, err := NewSQLCustomerStore(db, FixedKeyProvider{Key: key1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	now := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
+
+	// Create two customers with key v1
+	for i := range 2 {
+		cust := CustomerRecord{
+			ID: fmt.Sprintf("rot-%d", i), Ref: fmt.Sprintf("rot-ref-%d", i),
+			JoinDate: now, KYCVerified: true, KYCLastCheck: now, KYCRiskRating: "Low",
+		}
+		pii := PIIInput{
+			Name: fmt.Sprintf("Person %d", i), NI: fmt.Sprintf("RR%06dA", i),
+			DOB: "1990-01-01", Address: "123 Test St", Email: fmt.Sprintf("p%d@test.com", i), Phone: "07000000000",
+		}
+		if err := store.Create(ctx, cust, pii); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Switch to versioned provider with both keys, current=2
+	vkp := VersionedKeyProvider{
+		Keys:    map[int][]byte{1: key1, 2: key2},
+		Current: 2,
+	}
+	store2, err := NewSQLCustomerStore(db, vkp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Data encrypted with v1 should still decrypt (versioned lookup)
+	pii, err := store2.GetPII(ctx, "rot-ref-0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pii.Name != "Person 0" {
+		t.Errorf("pre-rotate Name = %q, want %q", pii.Name, "Person 0")
+	}
+
+	// Rotate
+	n, err := store2.RotateKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("rotated %d rows, want 2", n)
+	}
+
+	// Verify all PII still decrypts after rotation
+	for i := range 2 {
+		pii, err := store2.GetPII(ctx, fmt.Sprintf("rot-ref-%d", i))
+		if err != nil {
+			t.Fatalf("GetPII after rotate[%d]: %v", i, err)
+		}
+		want := fmt.Sprintf("Person %d", i)
+		if pii.Name != want {
+			t.Errorf("post-rotate Name[%d] = %q, want %q", i, pii.Name, want)
+		}
+	}
+
+	// Verify key_version is now 2 in DB
+	var kv int
+	err = db.QueryRowContext(ctx, `SELECT key_version FROM cust_pii WHERE customer_id = 'rot-0'`).Scan(&kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kv != 2 {
+		t.Errorf("key_version = %d, want 2", kv)
+	}
+
+	// Rotate again should be no-op
+	n2, err := store2.RotateKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n2 != 0 {
+		t.Errorf("second rotate = %d rows, want 0", n2)
+	}
+}
+
+func TestMixedKeyVersions(t *testing.T) {
+	db := openTestDB(t)
+	key1 := []byte("key1-32bytes-for-aes256-testing!")
+	key2 := []byte("key2-32bytes-for-aes256-testing!")
+
+	ctx := context.Background()
+	now := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
+
+	// Create store with key v1, insert one customer
+	store1, err := NewSQLCustomerStore(db, FixedKeyProvider{Key: key1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cust1 := CustomerRecord{ID: "mix-1", Ref: "mix-ref-1", JoinDate: now, KYCVerified: true, KYCLastCheck: now, KYCRiskRating: "Low"}
+	pii1 := PIIInput{Name: "Alice V1", NI: "MX000001A", DOB: "1990-01-01", Address: "V1 Street", Email: "v1@test.com", Phone: "07000000001"}
+	if err := store1.Create(ctx, cust1, pii1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create store with versioned provider (current=2), insert another customer
+	vkp := VersionedKeyProvider{
+		Keys:    map[int][]byte{1: key1, 2: key2},
+		Current: 2,
+	}
+	store2, err := NewSQLCustomerStore(db, vkp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cust2 := CustomerRecord{ID: "mix-2", Ref: "mix-ref-2", JoinDate: now, KYCVerified: true, KYCLastCheck: now, KYCRiskRating: "Low"}
+	pii2 := PIIInput{Name: "Bob V2", NI: "MX000002A", DOB: "1991-02-02", Address: "V2 Street", Email: "v2@test.com", Phone: "07000000002"}
+	if err := store2.Create(ctx, cust2, pii2); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both should decrypt correctly with the versioned store
+	got1, err := store2.GetPII(ctx, "mix-ref-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got1.Name != "Alice V1" {
+		t.Errorf("v1 customer Name = %q, want %q", got1.Name, "Alice V1")
+	}
+
+	got2, err := store2.GetPII(ctx, "mix-ref-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Name != "Bob V2" {
+		t.Errorf("v2 customer Name = %q, want %q", got2.Name, "Bob V2")
 	}
 }
