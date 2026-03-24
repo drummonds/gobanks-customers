@@ -10,6 +10,7 @@ tasks:
     desc: Format Go source files
     cmds:
       - go fmt ./...
+      - go fix ./...
 
   vet:
     desc: Run Go vet
@@ -32,6 +33,11 @@ tasks:
     desc: Tidy module dependencies
     cmds:
       - go mod tidy
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
 
   clean:
     desc: Remove build artifacts
