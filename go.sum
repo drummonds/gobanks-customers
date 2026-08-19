@@ -1,5 +1,5 @@
-codeberg.org/hum3/go-postgres v0.5.2 h1:M5UqsX1lUFqOjRD+l2ytGpLAYzMKnHdTv53/uiHsfyA=
-codeberg.org/hum3/go-postgres v0.5.2/go.mod h1:lK3yBzN6TnSmAqdPnwK6f463b6qKsb8E/d3j3nYlcCo=
+git.bytestone.uk/hum3/go-postgres v0.5.5 h1:BKnmpHcGM3r/hmTMw+5jWG8OqGsXvW8YoKBc7PGVHZ0=
+git.bytestone.uk/hum3/go-postgres v0.5.5/go.mod h1:rAg4Pa3KpSTpcrv/takcZ7xlQpZdAKIe6jq5hx8CIUg=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/ncruces/go-sqlite3 v0.30.6-0.20260318175627-361fdc52faa5 h1:dN/J8cpVzvAsQ07NKeE8AYRZXot0KlFYSv5NzNp2ebw=

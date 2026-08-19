@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- Module path migrated from `codeberg.org/hum3/gobanks-customers` to `git.bytestone.uk/hum3/gobanks-customers`
+- go-postgres dependency moved to `git.bytestone.uk/hum3/go-postgres` and bumped to v0.5.5
+
 ## [0.1.0] - 2026-03-24
 
  - Merge branch 'task/WTbegin'

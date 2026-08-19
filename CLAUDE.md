@@ -4,7 +4,7 @@ Go library for encrypted customer PII storage. Companion to go-luca.
 
 ## Architecture
 - Single package: `customers` (no cmd/, no internal/)
-- SQL backend via pglike (codeberg.org/hum3/go-postgres) or PostgreSQL
+- SQL backend via pglike (git.bytestone.uk/hum3/go-postgres) or PostgreSQL
 - Tables prefixed `cust_` to share DB with go-luca without clashes
 - Customer IDs are UUID v4, same as go-luca — link via `GetByID`/`GetPIIByID`
 
@@ -20,4 +20,4 @@ Go library for encrypted customer PII storage. Companion to go-luca.
 - Key rotation tests use `VersionedKeyProvider`
 
 ## Module
-- `codeberg.org/hum3/gobanks-customers`
+- `git.bytestone.uk/hum3/gobanks-customers`

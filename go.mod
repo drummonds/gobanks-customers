@@ -1,9 +1,9 @@
-module codeberg.org/hum3/gobanks-customers
+module git.bytestone.uk/hum3/gobanks-customers
 
 go 1.26.0
 
 require (
-	codeberg.org/hum3/go-postgres v0.5.2
+	git.bytestone.uk/hum3/go-postgres v0.5.5
 	github.com/google/uuid v1.6.0
 )
 

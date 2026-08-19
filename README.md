@@ -1,6 +1,6 @@
 # gobanks-customers
 
-Customer identity and PII storage for gobank. Companion library to [go-luca](https://codeberg.org/hum3/go-luca).
+Customer identity and PII storage for gobank. Companion library to [go-luca](https://git.bytestone.uk/hum3/go-luca).
 
 ## Design
 
@@ -49,8 +49,8 @@ pii, _ := custStore.GetPIIByID(ctx, id)
 ```go
 import (
     "database/sql"
-    customers "codeberg.org/hum3/gobanks-customers"
-    _ "codeberg.org/hum3/go-postgres"
+    customers "git.bytestone.uk/hum3/gobanks-customers"
+    _ "git.bytestone.uk/hum3/go-postgres"
 )
 
 db, _ := sql.Open("pglike", ":memory:")
@@ -68,5 +68,5 @@ store.Create(ctx, customers.CustomerRecord{
 
 ## Links
 
-- Source: https://codeberg.org/hum3/gobanks-customers
+- Source: https://git.bytestone.uk/hum3/gobanks-customers
 - Mirror: https://github.com/drummonds/gobanks-customers

@@ -7,7 +7,7 @@
 - NI hash dedup
 - Key rotation with versioned keys and RotateKeys()
 - go-luca integration (shared DB, UUID v4 IDs)
-- Module path migrated to codeberg.org/hum3
+- Module path migrated to git.bytestone.uk/hum3
 
 ## Next
 - Batch name lookup for list pages (avoid N+1)
