@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-24
+
+ - Module path migrated to git.bytestone.uk
+
 ### Changed
 - Module path migrated from `codeberg.org/hum3/gobanks-customers` to `git.bytestone.uk/hum3/gobanks-customers`
 - go-postgres dependency moved to `git.bytestone.uk/hum3/go-postgres` and bumped to v0.5.5
