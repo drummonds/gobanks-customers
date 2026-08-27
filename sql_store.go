@@ -10,10 +10,47 @@ import (
 	"github.com/google/uuid"
 )
 
+// dbtx is the subset of database operations the store uses, satisfied by
+// both *sql.DB and *sql.Tx so a store can run inside a caller's transaction.
+type dbtx interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// txBeginner is satisfied by *sql.DB but not *sql.Tx; see begin.
+type txBeginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+}
+
 // SQLCustomerStore implements CustomerStore backed by SQL.
 type SQLCustomerStore struct {
-	db  *sql.DB
+	db  dbtx
 	key KeyProvider
+}
+
+// WithTx returns a store view that runs every statement on tx. The caller
+// owns the transaction: methods that normally manage their own transaction
+// run directly on tx instead, nothing is committed by the store, and on
+// error the caller should roll tx back.
+func (s *SQLCustomerStore) WithTx(tx *sql.Tx) *SQLCustomerStore {
+	return &SQLCustomerStore{db: tx, key: s.key}
+}
+
+// begin starts a transaction when the store owns a *sql.DB. When the store
+// is bound to a caller's transaction (WithTx), it returns that transaction
+// with no-op commit and rollback — the caller owns the transaction's fate.
+func (s *SQLCustomerStore) begin(ctx context.Context) (q dbtx, commit func() error, rollback func() error, err error) {
+	if b, ok := s.db.(txBeginner); ok {
+		tx, err := b.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return tx, tx.Commit, tx.Rollback, nil
+	}
+	noop := func() error { return nil }
+	return s.db, noop, noop, nil
 }
 
 // NewSQLCustomerStore wraps a pre-opened *sql.DB and ensures the schema exists.
@@ -75,11 +112,11 @@ func (s *SQLCustomerStore) Create(ctx context.Context, cust CustomerRecord, pii 
 	}
 	niHash := hashNI(pii.NI)
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, commit, rollback, err := s.begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer rollback()
 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO cust_customers (id, ref, join_date, kyc_verified, kyc_last_check, kyc_risk_rating)
@@ -99,7 +136,7 @@ func (s *SQLCustomerStore) Create(ctx context.Context, cust CustomerRecord, pii 
 		return fmt.Errorf("insert pii: %w", err)
 	}
 
-	return tx.Commit()
+	return commit()
 }
 
 func (s *SQLCustomerStore) Get(ctx context.Context, ref string) (*CustomerRecord, error) {
