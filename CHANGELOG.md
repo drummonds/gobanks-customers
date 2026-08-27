@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-27
+
  - Add `SQLCustomerStore.WithTx` so store operations can run inside a
    caller-owned `*sql.Tx`: the store now works over a `dbtx` interface
    satisfied by both `*sql.DB` and `*sql.Tx`, and `Create` passes through
